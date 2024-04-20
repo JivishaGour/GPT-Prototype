@@ -6,7 +6,7 @@ torch.manual_seed(1337)
 device = 'cuda' if torch.cuda.is_available() else 'cpu' # all the calculations happen on GPU and get a lot faster
 
 # reading data
-with open('next_word_predictor_dataset.txt', 'r', encoding='utf-8') as f:
+with open('Dataset.txt', 'r', encoding='utf-8') as f:
     data = f.read()
 #print length of data
 #print("Length of dataset in characters: ", len(data))
@@ -41,11 +41,11 @@ test_data = test_data.to(device)
 # hyperparameters
 batch_size = 64 # how many independent sequences will we process in parallel?
 block_size = 256 # what is the maximum context length for predictions?
-eval_iters = 100
-eval_interval = 100
-max_iters = 7000
-lr = 1e-8
-n_embd = 384
+eval_iters = 200
+eval_interval = 500
+max_iters = 5000
+lr = 5e-5
+dmodel = 684
 n_head = 6
 n_layer = 6
 dropout = 0.2
@@ -62,7 +62,6 @@ def get_batch(split):
     return x, y
 xb, yb = get_batch('train')
 xb, yb = xb.to(device), yb.to(device)
-print(data.device)
 
 
 
@@ -115,11 +114,11 @@ out.shape
 class Head(nn.Module):
     """ one head of self-attention """
 
-    def __init__(self, head_size):
-        super().__init__()
-        self.key = nn.Linear(n_embd, head_size, bias=False)
-        self.query = nn.Linear(n_embd, head_size, bias=False)
-        self.value = nn.Linear(n_embd, head_size, bias=False)
+    def _init_(self, head_size):
+        super()._init_()
+        self.key = nn.Linear(dmodel, head_size, bias=False)
+        self.query = nn.Linear(dmodel, head_size, bias=False)
+        self.value = nn.Linear(dmodel, head_size, bias=False)
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
 
         self.dropout = nn.Dropout(dropout)
@@ -153,10 +152,10 @@ wei = q @ k.transpose(-2, -1) * head_size**-0.5 # denominator, where we divide w
 class MultiHeadAttention(nn.Module):
     """ multiple heads of self-attention in parallel """
 
-    def __init__(self, num_heads, head_size):
-        super().__init__()
+    def _init_(self, num_heads, head_size):
+        super()._init_()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
-        self.proj = nn.Linear(head_size * num_heads, n_embd)
+        self.proj = nn.Linear(head_size * num_heads, dmodel)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -165,13 +164,13 @@ class MultiHeadAttention(nn.Module):
         return out
     
 # Feed forward neural network--------------------------------------------------------------------------------------------------------------------------------------------
-class FeedFoward(nn.Module):
-    def __init__(self, n_embd):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(n_embd, 4 * n_embd),
+class FeedFoward(nn.Module): # nn.modeule is the base class for all pytorch neural network modules 
+    def _init_(self, dmodel):
+        super()._init_()
+        self.net = nn.Sequential(   #self.net: This is where the feedforward neural network is defined using an nn.Sequential container, which is a way to chain multiple layers sequentially.
+            nn.Linear(dmodel, 4 * dmodel),  # input features = dmodel , output features = 4*dmodel
             nn.ReLU(),
-            nn.Linear(4 * n_embd, n_embd),
+            nn.Linear(4 * dmodel, dmodel),
             nn.Dropout(dropout),
         )
 
@@ -182,14 +181,14 @@ class FeedFoward(nn.Module):
 class Block(nn.Module):
     """ Transformer block: communication followed by computation """
 
-    def __init__(self, n_embd, n_head):
-        # n_embd: embedding dimension, n_head: the number of heads we'd like
-        super().__init__()
-        head_size = n_embd // n_head
+    def _init_(self, dmodel, n_head):
+        # dmodel: embedding dimension, n_head: the number of heads we'd like
+        super()._init_()
+        head_size = dmodel // n_head
         self.sa = MultiHeadAttention(n_head, head_size)
-        self.ffwd = FeedFoward(n_embd)
-        self.ln1 = nn.LayerNorm(n_embd)
-        self.ln2 = nn.LayerNorm(n_embd)
+        self.ffwd = FeedFoward(dmodel)
+        self.ln1 = nn.LayerNorm(dmodel)
+        self.ln2 = nn.LayerNorm(dmodel)
 
     def forward(self, x):
         x = x + self.sa(self.ln1(x))
@@ -199,12 +198,12 @@ class Block(nn.Module):
 # Layer normalization----------------------------------------------------------------------------------------------------------------------------------------------------
     class LayerNorm1d:
         
-        def __init__(self, dim, eps=1e-5, momentum=0.1):
+        def _init_(self, dim, eps=1e-5, momentum=0.1):
             self.eps = eps
             self.gamma = torch.ones(dim)
             self.beta = torch.zeros(dim)
 
-        def __call__(self, x):
+        def _call_(self, x):
             # calculate the forward pass
             xmean = x.mean(1, keepdim=True) # batch mean
             xvar = x.var(1, keepdim=True) # batch variance
@@ -223,17 +222,17 @@ class Block(nn.Module):
 
 # model------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-class BigramLanguageModel(nn.Module):
+class GPTmodel(nn.Module):
 
-    def __init__(self):
-        super().__init__()
+    def _init_(self):
+        super()._init_()
         
         # each token directly reads off the logits for the next token from a lookup table
-        self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
-        self.position_embedding_table  = nn.Embedding(block_size, n_embd)
-        self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_head) for _ in range(n_layer)])
-        self.ln_f = nn.LayerNorm(n_embd) # final layer norm
-        self.lm_head = nn.Linear(n_embd, vocab_size) # language modelling head
+        self.token_embedding_table = nn.Embedding(vocab_size, dmodel)
+        self.position_embedding_table  = nn.Embedding(block_size, dmodel)
+        self.blocks = nn.Sequential(*[Block(dmodel, n_head=n_head) for _ in range(n_layer)])
+        self.ln_f = nn.LayerNorm(dmodel) # final layer norm
+        self.lm_head = nn.Linear(dmodel, vocab_size) # language modelling head
 
 
     def forward(self, idx, targets=None):
@@ -281,22 +280,22 @@ class BigramLanguageModel(nn.Module):
 
     
 
-model = BigramLanguageModel().to(device)
+model = GPTmodel().to(device)
 model = model.to(device)
 m = model.to(device) # we have to move the model pareameter to device because they are going to run on the GPU of the device
 logits, loss = m(xb, yb)
 print(logits.shape)
-print(loss)
+#print(loss)
 logits = logits.to(device)
 loss = loss.to(device)
 
-print(decode(m.generate(idx = torch.zeros((1, 1), dtype=torch.long).to(device), max_new_tokens=100)[0].tolist()))
+#print(decode(m.generate(idx = torch.zeros((1, 1), dtype=torch.long).to(device), max_new_tokens=100)[0].tolist()))
 # loss is 5.1094
 
 @torch.no_grad()
 def estimate_loss():
     out = {}
-    model = BigramLanguageModel().to(device)
+    model = GPTmodel().to(device)
     model.eval()
     for split in ['train', 'test']:
         losses = torch.zeros(eval_iters)
@@ -311,7 +310,7 @@ def estimate_loss():
 
 # Optimizers are used for setting learning rate and weights in machine learning
 # create a PyTorch optimizer
-optimizer = torch.optim.AdamW(m.parameters(), lr = 1e-6) #Adamw is an optimizer just like stochastic gradient descent
+optimizer = torch.optim.AdamW(m.parameters(), lr = 3e-4) #Adamw is an optimizer just like stochastic gradient descent
 # lr = learning rate
 
 # printing steps
